@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from tn.processor import Processor
+from tn.utils import get_abs_path
 
 from pynini import cross, accep, string_file
 from pynini.lib.pynutil import delete, insert, add_weight
@@ -34,14 +35,24 @@ class Cardinal(Processor):
         self.build_verbalizer()
 
     def build_tagger(self):
-        zero = string_file('itn/chinese/data/number/zero.tsv')  # 0
-        digit = string_file('itn/chinese/data/number/digit.tsv')  # 1 ~ 9
+        zero = string_file(
+            get_abs_path('../itn/chinese/data/number/zero.tsv'))  # 0
+        digit = string_file(
+            get_abs_path('../itn/chinese/data/number/digit.tsv'))  # 1 ~ 9
         special_tilde = string_file(
-            'itn/chinese//data/number/special_tilde.tsv')  # 七八十->70~80
+            get_abs_path(
+                '../itn/chinese/data/number/special_tilde.tsv'))  # 七八十->70~80
+        special_tilde = special_tilde + add_weight(
+            (accep("万") | accep("亿")), -0.1).ques
         special_dash = string_file(
-            'itn/chinese//data/number/special_dash.tsv')  # 七八十->70-80
-        sign = string_file('itn/chinese/data/number/sign.tsv')  # + -
-        dot = string_file('itn/chinese/data/number/dot.tsv')  # .
+            get_abs_path(
+                '../itn/chinese/data/number/special_dash.tsv'))  # 七八十->70-80
+        special_dash = special_dash + add_weight(
+            (accep("万") | accep("亿")), -0.1).ques
+        sign = string_file(
+            get_abs_path('../itn/chinese/data/number/sign.tsv'))  # + -
+        dot = string_file(
+            get_abs_path('../itn/chinese/data/number/dot.tsv'))  # .
 
         # 0. 基础数字
         addzero = insert('0')
@@ -58,7 +69,7 @@ class Cardinal(Processor):
                                           | add_weight(addzero**2, 1.0)))
         # 一千一百一十一 => 1111, 一千零一十一 => 1011, 一千零一 => 1001
         # 一千一 => 1100, 一千 => 1000
-        thousand = ((hundred | teen | tens | digits) + delete('千') +
+        thousand = (digit + delete('千') +
                     (hundred
                      | add_weight(zero + (tens | teen), 0.1)
                      | add_weight(addzero + zero + digit, 0.5)
@@ -67,7 +78,7 @@ class Cardinal(Processor):
         # 10001111, 1001111, 101111, 11111, 10111, 10011, 10001, 10000
         if self.enable_million:
             ten_thousand = (
-                (thousand | hundred | teen | tens | digits) + delete('万') +
+                (thousand | hundred | teen | tens | digit) + delete('万') +
                 (thousand
                  | add_weight(zero + hundred, 0.1)
                  | add_weight(addzero + zero + (tens | teen), 0.5)
@@ -76,7 +87,7 @@ class Cardinal(Processor):
                  | add_weight(addzero**4, 1.0)))
         else:
             ten_thousand = (
-                (teen | tens | digits) + delete('万') +
+                (teen | tens | digit) + delete('万') +
                 (thousand
                  | add_weight(zero + hundred, 0.1)
                  | add_weight(addzero + zero + (tens | teen), 0.5)
@@ -94,12 +105,14 @@ class Cardinal(Processor):
                   (number + accep('亿') + delete('零').ques).ques + number)
         # 负的xxx 1.11, 1.01
         number = sign.ques + number + (dot + digits.plus).ques
-        # 五六万 => 5~6万，三五千 => 3000~5000，六七百 => 600~700，三四十 => 30~40
+        # 五六万 => 5~6万，三五千 => 3000~5000，六七百 => 600~700，三四十 => 30~40, 三四十亿 => 30~40亿
         number |= special_tilde
-        # 十七八 => 17-8, 四十五六 => 45-6, 三百七八十 => 370-80
+        # 十七八 => 17-8, 四十五六 => 45-6, 三百七八十 => 370-80, 四十五六万 => 45-6万, 一万六七 => 16000-7000
         _special_dash = cross('十', '1') + special_dash
         _special_dash |= digit + delete('十') + special_dash
         _special_dash |= digit + delete('百') + special_dash
+        _special_dash |= digit + delete('万') + digit + insert(
+            '000-') + digit + insert('000')
         number |= _special_dash
 
         self.number = number.optimize()
